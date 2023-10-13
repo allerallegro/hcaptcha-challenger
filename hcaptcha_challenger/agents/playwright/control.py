@@ -15,18 +15,21 @@ import uuid
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any, Literal
+from typing import Any, Dict, List, Literal
 
 from loguru import logger
-from playwright.async_api import Page, FrameLocator, Response, Position
-from playwright.async_api import TimeoutError
+from playwright.async_api import (FrameLocator, Page, Position, Response,
+                                  TimeoutError)
 
-from hcaptcha_challenger.components.cv_toolkit import find_unique_object, annotate_objects
+from hcaptcha_challenger.components.cv_toolkit import (annotate_objects,
+                                                       find_unique_object)
 from hcaptcha_challenger.components.image_downloader import Cirilla
-from hcaptcha_challenger.components.prompt_handler import split_prompt_message, label_cleaning
-from hcaptcha_challenger.onnx.modelhub import ModelHub, DEFAULT_KEYPOINT_MODEL
+from hcaptcha_challenger.components.prompt_handler import (
+    label_cleaning, split_prompt_message)
+from hcaptcha_challenger.onnx.modelhub import DEFAULT_KEYPOINT_MODEL, ModelHub
 from hcaptcha_challenger.onnx.resnet import ResNetControl
-from hcaptcha_challenger.onnx.yolo import YOLOv8, is_matched_ash_of_war, finetune_keypoint
+from hcaptcha_challenger.onnx.yolo import (YOLOv8, finetune_keypoint,
+                                           is_matched_ash_of_war)
 from hcaptcha_challenger.utils import from_dict_to_model
 
 
@@ -577,8 +580,12 @@ class AgentT(Radagon):
 
     async def handle_checkbox(self):
         with suppress(TimeoutError):
-            checkbox = self.page.frame_locator("//iframe[contains(@title,'checkbox')]")
-            await checkbox.locator("#checkbox").click()
+            await self.page.wait_for_selector("div.h-captcha > iframe")
+
+            frame = self.page.frames[-1]
+
+            await frame.wait_for_selector("#checkbox")
+            await frame.click("#checkbox")
 
     async def execute(self, **kwargs) -> str | None:
         window = kwargs.get("window", "login")
