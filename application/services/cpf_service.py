@@ -42,11 +42,11 @@ class CPFService:
             if result is not None:
                 self.salvar(cpf=cpf, data=result)
         except NaoEncontradoException as e:
-            r = ConsultaCpfModel(erro=e.message, cpf=cpf)
+            r = ConsultaCpfModel(erro=str(e), cpf=cpf)
             self.salvar(cpf=cpf, data=r)
             return (r,False,404)
         except DataNascimentoDivergenteException as e:
-            r = ConsultaCpfModel(erro=e.message,cpf=cpf)
+            r = ConsultaCpfModel(erro=str(e),cpf=cpf)
             self.salvar(cpf=cpf, data=r)
             return (r,False,409)
 
