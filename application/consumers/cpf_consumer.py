@@ -93,7 +93,7 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
 
         except Exception as error:
             # Publica a mensagem na exchange
-            properties.headers.update({"error": error.message})
+            properties.headers.update({"error": str(error)})
             ch.basic_publish(
                 exchange="receitapf_error",
                 routing_key="",
@@ -102,7 +102,15 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
             )
             ch.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as e:
-        print(e)
+        properties.headers.update({"error": str(e)})
+        ch.basic_publish(
+                exchange="receitapf_error",
+                routing_key="",
+                properties=properties,
+                body=body,
+            )
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
 
 
 def run():
