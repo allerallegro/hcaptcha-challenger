@@ -15,21 +15,27 @@ import uuid
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal
+from typing import List, Dict, Any, Literal, Iterable
 
 from loguru import logger
 from playwright.async_api import (FrameLocator, Page, Position, Response,
                                   TimeoutError)
 
-from hcaptcha_challenger.components.cv_toolkit import (annotate_objects,
-                                                       find_unique_object)
+from hcaptcha_challenger.components.cv_toolkit import (
+    find_unique_object,
+    annotate_objects,
+    find_unique_color,
+)
 from hcaptcha_challenger.components.image_downloader import Cirilla
-from hcaptcha_challenger.components.prompt_handler import (
-    label_cleaning, split_prompt_message)
-from hcaptcha_challenger.onnx.modelhub import DEFAULT_KEYPOINT_MODEL, ModelHub
+from hcaptcha_challenger.components.prompt_handler import split_prompt_message, label_cleaning
+from hcaptcha_challenger.onnx.modelhub import ModelHub
 from hcaptcha_challenger.onnx.resnet import ResNetControl
-from hcaptcha_challenger.onnx.yolo import (YOLOv8, finetune_keypoint,
-                                           is_matched_ash_of_war)
+from hcaptcha_challenger.onnx.yolo import (
+    YOLOv8,
+    YOLOv8Seg,
+    is_matched_ash_of_war,
+    finetune_keypoint,
+)
 from hcaptcha_challenger.utils import from_dict_to_model
 
 
@@ -204,6 +210,10 @@ class Radagon:
     """
     bytes of challenge image
     """
+    _example_paths: List[Path] = field(default_factory=list)
+    """
+    bytes of example image
+    """
 
     _label = ""
     """
@@ -220,6 +230,8 @@ class Radagon:
     A collection of { prompt[s]: model_name[.onnx] }
     """
 
+    nested_categories: Dict[str, List[str]] = field(default_factory=dict)
+
     HOOK_PURCHASE = "//div[@id='webPurchaseContainer']//iframe"
     HOOK_CHECKBOX = "//iframe[contains(@title, 'checkbox for hCaptcha')]"
     HOOK_CHALLENGE = "//iframe[contains(@title, 'Conteúdo principal do desafio hCaptcha')]"
@@ -230,6 +242,7 @@ class Radagon:
         self.record_json_dir.mkdir(parents=True, exist_ok=True)
 
         self.label_alias = self.modelhub.label_alias
+        self.nested_categories = self.modelhub.nested_categories
 
         self.qr_queue = asyncio.Queue()
         self.cr_queue = asyncio.Queue()
@@ -296,10 +309,11 @@ class Radagon:
 
     def _parse_label(self):
         self._prompt = self.qr.requester_question.get("en")
-        _label = split_prompt_message(self._prompt, lang="en")
-        self._label = label_cleaning(_label)
+        _label = label_cleaning(self._prompt)
+        _label = split_prompt_message(_label, lang="en")
+        self._label = _label
 
-    async def _download_images(self):
+    async def _download_images(self, ignore_examples: bool = False):
         request_type = self.qr.request_type
         ks = list(self.qr.requester_restricted_answer_set.keys())
         if len(ks) > 0:
@@ -317,6 +331,15 @@ class Radagon:
             container.append(context)
             tasks.append(asyncio.create_task(ciri.elder_blood(context)))
 
+        examples = []
+        if not ignore_examples:
+            with suppress(Exception):
+                for i, uri in enumerate(self.qr.requester_question_example):
+                    example_img_path = self.typed_dir.joinpath(f"{time.time()}.exp.{i}.png")
+                    context = (example_img_path, uri)
+                    examples.append(context)
+                    tasks.append(asyncio.create_task(ciri.elder_blood(context)))
+
         await asyncio.gather(*tasks)
 
         # Optional deduplication
@@ -326,6 +349,15 @@ class Radagon:
             dst = self.typed_dir.joinpath(f"{hashlib.md5(cache).hexdigest()}.png")
             shutil.move(src, dst)
             self._img_paths.append(dst)
+
+        # Optional deduplication
+        self._example_paths = []
+        if examples:
+            for src, _ in examples:
+                cache = src.read_bytes()
+                dst = self.typed_dir.joinpath(f"{hashlib.md5(cache).hexdigest()}.png")
+                shutil.move(src, dst)
+                self._example_paths.append(dst)
 
     def _match_solution(self, select: Literal["yolo", "resnet"] = None) -> ResNetControl | YOLOv8:
         """match solution after `tactical_retreat`"""
@@ -347,6 +379,31 @@ class Radagon:
         net = self.modelhub.match_net(focus_name=focus_name)
         control = ResNetControl.from_pluggable_model(net)
         return control
+
+    def _rank_models(self) -> ResNetControl | None:
+        nested_models = self.nested_categories.get(self._label, [])
+        if not nested_models:
+            return
+
+        # {{< Rank ResNet Models >}}
+        rank_ladder = []
+        for example_path in self._example_paths:
+            img_stream = example_path.read_bytes()
+            for model_name in nested_models:
+                net = self.modelhub.match_net(focus_name=model_name)
+                control = ResNetControl.from_pluggable_model(net)
+                result_, proba = control.execute(img_stream, proba=True)
+                if result_:
+                    rank_ladder.append([control, model_name, proba])
+                    if proba[0] > 0.87:
+                        break
+
+        # {{< Catch-all Rules >}}
+        if rank_ladder:
+            alts = sorted(rank_ladder, key=lambda x: x[-1][0], reverse=True)
+            best_model, model_name = alts[0][0], alts[0][1]
+            logger.debug("rank model", resnet=model_name, prompt=self._prompt)
+            return best_model
 
     async def _bounding_challenge(self, frame_challenge: FrameLocator):
         detector: YOLOv8 = self._match_solution(select="yolo")
@@ -388,9 +445,9 @@ class Radagon:
                 await self.page.wait_for_timeout(1000)
 
     async def _keypoint_default_challenge(self, frame_challenge: FrameLocator):
-        def lookup_objects(deep: int = 6) -> Position[str, str] | None:
+        def lookup_objects(_iter_launcher: Iterable, deep: int = 6) -> Position[str, str] | None:
             count = 0
-            for focus_name, classes in self.modelhub.lookup_ash_of_war(self.ash):
+            for focus_name, classes in _iter_launcher:
                 count += 1
                 session = self.modelhub.match_net(focus_name=focus_name)
                 detector = YOLOv8.from_pluggable_model(session, classes)
@@ -404,18 +461,33 @@ class Radagon:
                 if count > deep:
                     return
 
-        def lookup_unique_object() -> Position[int, int] | None:
-            classes = self.modelhub.ashes_of_war.get(DEFAULT_KEYPOINT_MODEL)
-            session = self.modelhub.match_net(focus_name=DEFAULT_KEYPOINT_MODEL)
-            detector = YOLOv8.from_pluggable_model(session, classes)
+        def lookup_unique_object(trident) -> Position[int, int] | None:
+            model_name = self.modelhub.circle_segment_model
+            classes = self.modelhub.ashes_of_war.get(model_name)
+            session = self.modelhub.match_net(model_name)
+            detector = YOLOv8Seg.from_pluggable_model(session, classes)
             results = detector(path, shape_type="point")
             self.modelhub.unplug()
-            logger.debug("select model", yolo=DEFAULT_KEYPOINT_MODEL, ash=self.ash)
             img, circles = annotate_objects(str(path))
+            # Extract point coordinates
             if results:
                 circles = [[int(result[1][0]), int(result[1][1]), 32] for result in results]
-            if circles:
-                if result := find_unique_object(img, circles):
+                logger.debug(
+                    "select model", yolo=model_name, trident=trident.__name__, ash=self.ash
+                )
+            # Filter points outside the bounding box
+            edge_circles = []
+            if len(self._example_paths) == 0:
+                edge_circles = circles
+            else:
+                for circle in circles:
+                    x, y, r = circle
+                    if y < 20 or y > 520 or x < 91 or x > 400:
+                        continue
+                    edge_circles.append([x, y, r])
+            # Find targets with special semantics
+            if edge_circles:
+                if result := trident(img, edge_circles):
                     x, y, _ = result
                     return {"x": int(x), "y": int(y)}
 
@@ -428,10 +500,22 @@ class Radagon:
             path = self.tmp_dir.joinpath("_challenge", f"{uuid.uuid4()}.png")
             image = await locator.screenshot(path=path, type="png")
 
-            if "appears only once" in self.ash or "never repeated" in self.ash:
-                position = lookup_unique_object()
+            position = None
+            launcher = []
+
+            if nested_models := self.nested_categories.get(self._label, []):
+                for model_name in nested_models:
+                    element = model_name, self.modelhub.ashes_of_war.get(model_name, [])
+                    launcher.append(element)
+                if launcher:
+                    position = lookup_objects(launcher)
+            elif "appears only once" in self.ash or "never repeated" in self.ash:
+                position = lookup_unique_object(trident=find_unique_object)
+            elif "shapes are of the same color" in self.ash:
+                position = lookup_unique_object(trident=find_unique_color)
             else:
-                position = lookup_objects()
+                launcher = self.modelhub.lookup_ash_of_war(self.ash)
+                position = lookup_objects(launcher)
 
             if position:
                 await locator.click(delay=500, position=position)
@@ -442,10 +526,6 @@ class Radagon:
             with suppress(TimeoutError):
                 fl = frame_challenge.locator("//div[@class='button-submit button']")
                 await fl.click(delay=200)
-
-            # {{< Done | Continue >}}
-            if pth == 0:
-                await self.page.wait_for_timeout(1000)
 
     async def _keypoint_challenge(self, frame_challenge: FrameLocator):
         # Load YOLOv8 model from local or remote repo
@@ -462,7 +542,6 @@ class Radagon:
 
             # {{< Please click on the X >}}
             res = detector(Path(path), shape_type="point")
-            # print(res)
 
             alts = []
             for name, (center_x, center_y), score in res:
@@ -498,8 +577,8 @@ class Radagon:
             if pth == 0:
                 await self.page.wait_for_timeout(1000)
 
-    async def _binary_challenge(self, frame_challenge: FrameLocator):
-        classifier = self._match_solution(select="resnet")
+    async def _binary_challenge(self, frame_challenge: FrameLocator, model: ResNetControl = None):
+        classifier = model or self._match_solution(select="resnet")
 
         # {{< IMAGE CLASSIFICATION >}}
         times = int(len(self.qr.tasklist) / 9)
@@ -508,25 +587,25 @@ class Radagon:
             samples = frame_challenge.locator("//div[@class='task-image']")
             count = await samples.count()
             # Remember you are human not a robot
-            await self.page.wait_for_timeout(1700)
+            await self.page.wait_for_timeout(600)
             # Classify and Click on the right image
+            positive_cases = 0
             for i in range(count):
                 sample = samples.nth(i)
                 await sample.wait_for()
                 result = classifier.execute(img_stream=self._img_paths[i + pth * 9].read_bytes())
                 if result:
+                    positive_cases += 1
                     with suppress(TimeoutError):
                         time.sleep(random.uniform(0.1, 0.3))
                         await sample.click(delay=200)
+                elif positive_cases == 0 and pth == times - 1 and i == count - 1:
+                    await sample.click(delay=200)
 
             # {{< Verify >}}
             with suppress(TimeoutError):
                 fl = frame_challenge.locator("//div[@class='button-submit button']")
                 await fl.click()
-
-            # {{< Done | Continue >}}
-            if pth == 0:
-                await self.page.wait_for_timeout(300)
 
     async def _is_success(self):
         self.cr = await self.cr_queue.get()
@@ -605,9 +684,15 @@ class AgentT(Radagon):
 
         # Match: image_label_binary
         if self.qr.request_type == "image_label_binary":
-            if not self.label_alias.get(self._label):
+            if self.nested_categories.get(self._label):
+                if model := self._rank_models():
+                    await self._binary_challenge(frame_challenge, model)
+                else:
+                    return self.status.CHALLENGE_BACKCALL
+            elif self.label_alias.get(self._label):
+                await self._binary_challenge(frame_challenge)
+            else:
                 return self.status.CHALLENGE_BACKCALL
-            await self._binary_challenge(frame_challenge)
         # Match: image_label_area_select
         elif self.qr.request_type == "image_label_area_select":
             ash = self.ash
@@ -637,5 +722,5 @@ class AgentT(Radagon):
         if not self.qr.requester_question.keys():
             return
         self._parse_label()
-        await self._download_images()
+        await self._download_images(ignore_examples=True)
         return self._label
