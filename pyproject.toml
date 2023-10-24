@@ -49,11 +49,11 @@ scikit-image = "^0.21.0"
 undetected-chromedriver = { version = "^3.5.3", optional = true }
 webdriver-manager = { version = "^4.0.1", optional = true }
 selenium = { version = "*", optional = true }
-playwright = { version = "*", optional = true }
 PyGithub = { version = "^1.59.1", optional = true }
 istockphoto = { version = "0.1.2", optional = true }
 fastapi = {version = "*", optional = true}
 uvicorn = {version = "*", extras = ["standard"], optional = true}
+playwright = "^1.39.0"
 
 [tool.poetry.group.test.dependencies]
 # https://docs.pytest.org/en/stable/reference/plugin_list.html#plugin-list
