@@ -8,8 +8,8 @@ import psycopg2
 from pika.channel import Channel
 from retry import retry
 
-from application.services.cpf_service import CPFService
-from models.comprovante_situacao_cadastral import ConsultaCpfModel
+from application.services.cnpj_service import CNPJService
+from models.cnpj import Cnpj
 
 service = None
 
@@ -28,9 +28,9 @@ def publish(channel: Channel, data):
             "batchItem": {
                 "document": data[0],
                 "batchId": data[1],
-                "birthDate": data[3],
+                "birthDate": None,
                 "batchItemId": data[2],
-                "typeDocument": "Cpf",
+                "typeDocument": "Cnpj",
             }
         },
         "responseAddress": None,
@@ -50,7 +50,6 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
     try:
         obj = json.loads(body.decode("utf-8"))
         cpf = obj["message"]["batchItem"]["document"]
-        nascimento = obj["message"]["batchItem"]["birthDate"]
         print(cpf)
         success = False
         try:
@@ -58,8 +57,8 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
             attempts = 0
             while attempts <= max_attempts:
                 (response, cache, status) = asyncio.run(
-                    service.consultar_cpf(
-                        cpf,nascimento, headless=False
+                    service.consultar_cnpj(
+                        cpf, headless=False
                     )
                 )
                 success = True
@@ -71,8 +70,7 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
                     [
                         cpf,
                         obj["message"]["batchItem"]["batchId"],
-                        obj["message"]["batchItem"]["batchItemId"],
-                        nascimento
+                        obj["message"]["batchItem"]["batchItemId"]
                     ],
                 )
             if status == 409 or status == 404:
@@ -81,21 +79,20 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
                     [
                         cpf,
                         obj["message"]["batchItem"]["batchId"],
-                        obj["message"]["batchItem"]["batchItemId"],
-                        nascimento
+                        obj["message"]["batchItem"]["batchItemId"]
                     ],
                 )
 
             # Simula uma consulta (substitua pelo seu código real)
             ch.basic_ack(delivery_tag=method.delivery_tag)
             if not cache:
-                time.sleep(2)
+                time.sleep(5)
 
         except Exception as error:
             # Publica a mensagem na exchange
             properties.headers.update({"error": str(error)})
             ch.basic_publish(
-                exchange="receitapf_error",
+                exchange="receitapj_error",
                 routing_key="",
                 properties=properties,
                 body=body,
@@ -104,7 +101,7 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
     except Exception as e:
         properties.headers.update({"error": str(e)})
         ch.basic_publish(
-                exchange="receitapf_error",
+                exchange="receitapj_error",
                 routing_key="",
                 properties=properties,
                 body=body,
@@ -135,7 +132,7 @@ def run():
     )
 
     global service
-    service = CPFService(connection)
+    service = CNPJService(connection)
 
     connect_to_rabbitmq()
 
@@ -152,7 +149,7 @@ def connect_to_rabbitmq():
     )
     channel = connection.channel()
 
-    queue = "receitapf"
+    queue = "receitapj"
     channel.queue_declare(queue=queue, durable=True)
     channel.basic_qos(prefetch_count=1)
 

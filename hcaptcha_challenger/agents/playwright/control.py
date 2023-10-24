@@ -222,7 +222,7 @@ class Radagon:
 
     HOOK_PURCHASE = "//div[@id='webPurchaseContainer']//iframe"
     HOOK_CHECKBOX = "//iframe[contains(@title, 'checkbox for hCaptcha')]"
-    HOOK_CHALLENGE = "//iframe[contains(@title, 'hCaptcha challenge')]"
+    HOOK_CHALLENGE = "//iframe[contains(@title, 'Conteúdo principal do desafio hCaptcha')]"
 
     def __post_init__(self):
         self.challenge_dir = self.tmp_dir.joinpath("_challenge")

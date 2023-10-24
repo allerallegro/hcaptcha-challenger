@@ -4,14 +4,14 @@ from typing import Optional
 
 import psycopg2
 
-from models.comprovante_situacao_cadastral import ConsultaCpfModel
+from models.cnpj import Cnpj
 
 
-class CPFRepository:
+class CNPJRepository:
     def __init__(self, connection: psycopg2.extensions.connection):
         self.connection = connection
 
-    def get_ultima_consulta(self, cpf: str) -> Optional[dict]:
+    def get_ultima_consulta(self, cnpj: str) -> Optional[dict]:
         query = """
             SELECT * FROM tb_cache
             WHERE documento = %s AND dh_consulta >= %s
@@ -20,7 +20,7 @@ class CPFRepository:
         data_limite = datetime.now() - timedelta(days=180)
 
         cursor = self.connection.cursor()
-        cursor.execute(query, (cpf, data_limite.isoformat()))
+        cursor.execute(query, (cnpj, data_limite.isoformat()))
         row = cursor.fetchone()
         cursor.close()
 
@@ -29,7 +29,7 @@ class CPFRepository:
 
         return None
 
-    def salvar(self, cpf: str, data: ConsultaCpfModel) -> None:
+    def salvar(self, cpf: str, data: Cnpj) -> None:
         query = """
             INSERT INTO tb_cache (documento, dh_consulta, data)
             VALUES (%s, NOW(), %s::jsonb)
