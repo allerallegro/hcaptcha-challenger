@@ -15,28 +15,33 @@ import uuid
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any, Literal, Iterable
-
-from loguru import logger
-from playwright.async_api import (FrameLocator, Page, Position, Response,
-                                  TimeoutError)
+from typing import Any, Dict, Iterable, List, Literal
 
 from hcaptcha_challenger.components.cv_toolkit import (
-    find_unique_object,
     annotate_objects,
     find_unique_color,
+    find_unique_object,
 )
+from hcaptcha_challenger.components.image_classifier import rank_models
 from hcaptcha_challenger.components.image_downloader import Cirilla
-from hcaptcha_challenger.components.prompt_handler import split_prompt_message, label_cleaning
-from hcaptcha_challenger.onnx.modelhub import ModelHub
+from hcaptcha_challenger.components.prompt_handler import handle, label_cleaning
+from hcaptcha_challenger.components.zero_shot_image_classifier import (
+    ZeroShotImageClassifier,
+    register_pipline,
+)
+from hcaptcha_challenger.onnx.modelhub import DataLake, ModelHub
 from hcaptcha_challenger.onnx.resnet import ResNetControl
 from hcaptcha_challenger.onnx.yolo import (
     YOLOv8,
     YOLOv8Seg,
-    is_matched_ash_of_war,
     finetune_keypoint,
+    is_matched_ash_of_war,
 )
 from hcaptcha_challenger.utils import from_dict_to_model
+from loguru import logger
+from PIL import Image
+
+from playwright.async_api import FrameLocator, Page, Position, Response, TimeoutError
 
 
 @dataclass
@@ -270,12 +275,16 @@ class Radagon:
 
     @classmethod
     def from_page(cls, page: Page, tmp_dir=None, **kwargs):
+        self_supervised = kwargs.get("self_supervised", False)
+
         modelhub = ModelHub.from_github_repo(**kwargs)
         modelhub.parse_objects()
 
         if tmp_dir and isinstance(tmp_dir, Path):
-            return cls(page=page, modelhub=modelhub, tmp_dir=tmp_dir)
-        return cls(page=page, modelhub=modelhub)
+            return cls(
+                page=page, modelhub=modelhub, tmp_dir=tmp_dir, self_supervised=self_supervised
+            )
+        return cls(page=page, modelhub=modelhub, self_supervised=self_supervised)
 
     @property
     def status(self):
@@ -309,9 +318,7 @@ class Radagon:
 
     def _parse_label(self):
         self._prompt = self.qr.requester_question.get("en")
-        _label = label_cleaning(self._prompt)
-        _label = split_prompt_message(_label, lang="en")
-        self._label = _label
+        self._label = handle(self._prompt)
 
     async def _download_images(self, ignore_examples: bool = False):
         request_type = self.qr.request_type
@@ -380,28 +387,10 @@ class Radagon:
         control = ResNetControl.from_pluggable_model(net)
         return control
 
-    def _rank_models(self) -> ResNetControl | None:
-        nested_models = self.nested_categories.get(self._label, [])
-        if not nested_models:
-            return
-
-        # {{< Rank ResNet Models >}}
-        rank_ladder = []
-        for example_path in self._example_paths:
-            img_stream = example_path.read_bytes()
-            for model_name in nested_models:
-                net = self.modelhub.match_net(focus_name=model_name)
-                control = ResNetControl.from_pluggable_model(net)
-                result_, proba = control.execute(img_stream, proba=True)
-                if result_:
-                    rank_ladder.append([control, model_name, proba])
-                    if proba[0] > 0.87:
-                        break
-
-        # {{< Catch-all Rules >}}
-        if rank_ladder:
-            alts = sorted(rank_ladder, key=lambda x: x[-1][0], reverse=True)
-            best_model, model_name = alts[0][0], alts[0][1]
+    def _rank_models(self, nested_models: List[str]) -> ResNetControl | None:
+        result = rank_models(nested_models, self._example_paths, self.modelhub)
+        if result and isinstance(result, tuple):
+            best_model, model_name = result
             logger.debug("rank model", resnet=model_name, prompt=self._prompt)
             return best_model
 
@@ -450,8 +439,12 @@ class Radagon:
             for focus_name, classes in _iter_launcher:
                 count += 1
                 session = self.modelhub.match_net(focus_name=focus_name)
-                detector = YOLOv8.from_pluggable_model(session, classes)
-                res = detector(image, shape_type="point")
+                if "-seg" in focus_name:
+                    detector = YOLOv8Seg.from_pluggable_model(session, classes)
+                    res = detector(path, shape_type="point")
+                else:
+                    detector = YOLOv8.from_pluggable_model(session, classes)
+                    res = detector(image, shape_type="point")
                 self.modelhub.unplug()
                 for name, (center_x, center_y), score in res:
                     if center_y < 20 or center_y > 520 or center_x < 91 or center_x > 400:
@@ -517,10 +510,11 @@ class Radagon:
                 launcher = self.modelhub.lookup_ash_of_war(self.ash)
                 position = lookup_objects(launcher)
 
+            await self.page.wait_for_timeout(800)
             if position:
-                await locator.click(delay=500, position=position)
+                await locator.click(position=position)
             else:
-                await locator.click(delay=500)
+                await locator.click()
 
             # {{< Verify >}}
             with suppress(TimeoutError):
@@ -607,6 +601,47 @@ class Radagon:
                 fl = frame_challenge.locator("//div[@class='button-submit button']")
                 await fl.click()
 
+    async def _binary_challenge_clip(self, frame_challenge: FrameLocator):
+        dl = self.modelhub.datalake.get(self._label)
+        if not dl:
+            dl = DataLake.from_challenge_prompt(raw_prompt=self._label)
+        tool = ZeroShotImageClassifier.from_datalake(dl)
+
+        # Default to `RESNET.OPENAI` perf_counter 1.794s
+        t0 = time.perf_counter()
+        model = register_pipline(self.modelhub)
+        te = time.perf_counter()
+
+        logger.debug(
+            "unsupervised",
+            type="binary",
+            candidate_labels=tool.candidate_labels,
+            prompt=self._prompt,
+            timit=f"{te - t0:.3f}s",
+        )
+
+        # {{< IMAGE CLASSIFICATION >}}
+        times = int(len(self.qr.tasklist) / 9)
+        for pth in range(times):
+            samples = frame_challenge.locator("//div[@class='task-image']")
+            count = await samples.count()
+            positive_cases = 0
+            for i in range(count):
+                sample = samples.nth(i)
+                await sample.wait_for()
+                results = tool(model, image=Image.open(self._img_paths[i + pth * 9]))
+                if results[0]["label"] in tool.positive_labels:
+                    positive_cases += 1
+                    with suppress(TimeoutError):
+                        await sample.click(delay=200)
+                elif positive_cases == 0 and pth == times - 1 and i == count - 1:
+                    await sample.click(delay=200)
+
+            # {{< Verify >}}
+            with suppress(TimeoutError):
+                fl = frame_challenge.locator("//div[@class='button-submit button']")
+                await fl.click()
+
     async def _is_success(self):
         self.cr = await self.cr_queue.get()
         if not self.cr or not self.cr.is_pass:
@@ -684,13 +719,15 @@ class AgentT(Radagon):
 
         # Match: image_label_binary
         if self.qr.request_type == "image_label_binary":
-            if self.nested_categories.get(self._label):
-                if model := self._rank_models():
+            if nested_models := self.nested_categories.get(self._label, []):
+                if model := self._rank_models(nested_models):
                     await self._binary_challenge(frame_challenge, model)
                 else:
                     return self.status.CHALLENGE_BACKCALL
             elif self.label_alias.get(self._label):
                 await self._binary_challenge(frame_challenge)
+            elif self.self_supervised:
+                await self._binary_challenge_clip(frame_challenge)
             else:
                 return self.status.CHALLENGE_BACKCALL
         # Match: image_label_area_select

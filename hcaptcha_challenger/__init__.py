@@ -18,6 +18,12 @@ from hcaptcha_challenger.components.prompt_handler import (
     diagnose_task,
     split_prompt_message,
     prompt2task,
+    handle,
+)
+from hcaptcha_challenger.components.zero_shot_image_classifier import (
+    ZeroShotImageClassifier,
+    DataLake,
+    register_pipline,
 )
 from hcaptcha_challenger.onnx.modelhub import ModelHub
 from hcaptcha_challenger.onnx.resnet import ResNetControl
@@ -28,11 +34,15 @@ from hcaptcha_challenger.utils import init_log
 __all__ = [
     "BinaryClassifier",
     "LocalBinaryClassifier",
+    "ZeroShotImageClassifier",
+    "register_pipline",
+    "DataLake",
     "AreaSelector",
     "label_cleaning",
     "diagnose_task",
     "split_prompt_message",
     "prompt2task",
+    "handle",
     "ModelHub",
     "ResNetControl",
     "YOLOv8",
@@ -62,6 +72,7 @@ def install(
     lang: str = "en",
     flush_yolo: bool | Iterable[str] = False,
     pypi: bool = False,
+    clip: bool = False,
     **kwargs,
 ):
     if pypi is True:
@@ -73,6 +84,11 @@ def install(
     modelhub.pull_objects(upgrade=upgrade)
     modelhub.assets.flush_runtime_assets(upgrade=upgrade)
 
+    if clip is True:
+        from hcaptcha_challenger.components.zero_shot_image_classifier import register_pipline
+
+        register_pipline(modelhub, install_only=True)
+
     if flush_yolo is not None:
         modelhub.parse_objects()
 
@@ -82,7 +98,7 @@ def install(
             pending_models = []
             for model_name in flush_yolo:
                 if model_name in modelhub.ashes_of_war:
-                    modelhub.pull_model(model_name)
+                    modelhub.match_net(model_name, install_only=True)
                     pending_models.append(model_name)
             return pending_models
 

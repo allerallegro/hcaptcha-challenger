@@ -1,3 +1,4 @@
 *.png binary
+*.drawio binary
 *.js linguist-language=Python
-*.yaml text eol=crlf
+*.yaml eol=lf

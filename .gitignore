@@ -149,4 +149,10 @@ examples/*.png
 docs/*.xmind
 tests_private/
 .run/
+assets/image_label_binary/off_road_vehicle/yes
+assets/image_label_binary/off_road_vehicle/bad
+assets/image_label_binary/off_road_vehicle/20**
+profile_pluggable_model.md
+./*.png
+tests/record_json
 infrastructure/integrations/receita/user_data_dir

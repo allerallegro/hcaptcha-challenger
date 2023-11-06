@@ -17,7 +17,8 @@ from hcaptcha_challenger.agents import AgentT, Malenia
 from hcaptcha_challenger.utils import SiteKey
 
 # Init local-side of the ModelHub
-solver.install(upgrade=True)
+clip_available = True
+solver.install(upgrade=True, clip=clip_available)
 
 # Save dataset to current working directory
 tmp_dir = Path(__file__).parent.joinpath("tmp_dir")
@@ -32,13 +33,13 @@ sitekey = SiteKey.user_easy
 @logger.catch
 async def hit_challenge(context: ASyncContext, times: int = 8):
     page = context.pages[0]
-    agent = AgentT.from_page(page=page, tmp_dir=tmp_dir)
+    agent = AgentT.from_page(page=page, tmp_dir=tmp_dir, self_supervised=clip_available)
     await page.goto(SiteKey.as_sitelink(sitekey))
 
     await agent.handle_checkbox()
 
     for pth in range(1, times):
-        result = await agent()
+        result = await agent.execute()
         print(f">> {pth} - Challenge Result: {result}")
         match result:
             case agent.status.CHALLENGE_BACKCALL:

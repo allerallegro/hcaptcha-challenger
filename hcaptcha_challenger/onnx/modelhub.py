@@ -233,13 +233,62 @@ class ModelHub:
     objects_path = models_dir.joinpath("objects.yaml")
 
     lang: str = "en"
+
     label_alias: Dict[str, str] = field(default_factory=dict)
+    """
+    Image classification
+    ---
+    The most basic function
+    Storing a series of mappings from model names to short prompts, 
+    I .e., what model to use to handle what challenge is determined by this dictionary.
+    """
 
     yolo_names: List[str] = field(default_factory=list)
     ashes_of_war: Dict[str, List[str]] = field(default_factory=dict)
+    """
+    Object Detection
+    ---
+    Provide a series of object detection models applied to special tasks.
+    The yolo_names stores the label names of all task objects that the model can process.
+    """
 
     nested_categories: Dict[str, List[str]] = field(default_factory=dict)
+    """
+    Model Rank.Strategy
+    ---
+    Provide a string of small model clusters for a prompt to realize 
+    "find the ｛z｝ pictures most similar to ｛y｝ in the ｛x_i｝ pictures"
+    """
+
     circle_segment_model: str = field(default=str)
+    """
+    Image Segmentation
+    ---
+    A model trained specifically for image segmentation tasks 
+    that can separate background and foreground with close to 100 percent accuracy
+    """
+
+    datalake: Dict[str, DataLake] = field(default_factory=dict)
+    """
+    ViT zero-shot image classification
+    ---
+    Used to generate prompt templates to intensify inserted CLIP model and improve accuracy.
+    """
+
+    DEFAULT_CLIP_VISUAL_MODEL: str = "visual_CLIP_RN50.openai.onnx"
+    DEFAULT_CLIP_TEXTUAL_MODEL: str = "textual_CLIP_RN50.openai.onnx"
+    """
+    Available Model
+    --- 1180+ MiB
+    DEFAULT_CLIP_VISUAL_MODEL: str = "visual_CLIP_ViT-B-32.openai.onnx"
+    DEFAULT_CLIP_TEXTUAL_MODEL: str = "textual_CLIP_ViT-B-32.openai.onnx"
+    --- 658.3 MiB
+    DEFAULT_CLIP_VISUAL_MODEL: str = "visual_CLIP_RN50.openai.onnx"
+    DEFAULT_CLIP_TEXTUAL_MODEL: str = "textual_CLIP_RN50.openai.onnx"
+    --- 3300+ MiB
+    DEFAULT_CLIP_VISUAL_MODEL: str = "visual_CLIP-ViT-L-14-DataComp.XL-s13B-b90K.onnx"
+    DEFAULT_CLIP_TEXTUAL_MODEL: str = "textual_CLIP-ViT-L-14-DataComp.XL-s13B-b90K.onnx"
+    """
 
     release_url: str = ""
     objects_url: str = ""
@@ -306,6 +355,12 @@ class ModelHub:
             "circle_seg", "appears_only_once_2309_yolov8s-seg.onnx"
         )
 
+        datalake = data.get("datalake", {})
+        if datalake:
+            for prompt, serialized_binary in datalake.items():
+                datalake[prompt] = DataLake.from_serialized(serialized_binary)
+        self.datalake = datalake
+
     def pull_model(self, focus_name: str):
         """
         1. node_id: Record the insertion point
@@ -342,7 +397,7 @@ class ModelHub:
             and model_path.stat().st_size
             and not self.assets.is_outdated(focus_name)
         ):
-            if "yolo" in focus_name:
+            if "yolo" in focus_name.lower() or "clip" in focus_name.lower():
                 net = onnxruntime.InferenceSession(
                     model_path, providers=onnxruntime.get_available_providers()
                 )
@@ -351,26 +406,38 @@ class ModelHub:
             self._name2net[focus_name] = net
             return net
 
-    def match_net(self, focus_name: str) -> Net | InferenceSession | None:
+    def match_net(
+        self, focus_name: str, *, install_only: bool = False
+    ) -> Net | InferenceSession | None:
         """
-        PluggableONNXModel 对象实例化时：
-        - 自动读取并注册 objects.yaml 中注明的且已存在指定目录的模型对象，
-        - 然而，objects.yaml 中表达的标签组所对应的模型文件不一定都已存在。
-        - 初始化时不包含新的网络请求，即，不在初始化阶段下载缺失模型。
+        When a PluggableONNXModel object is instantiated:
+        ---
 
-        match_net 模型被动拉取：
-        - 在挑战进行时被动下载缺失的用于处理特定二分类任务的 ONNX 模型。
-        - 匹配的模型会被自动下载、注册并返回。
-        - 不在 objects.yaml 名单中的模型不会被下载
+        - It automatically reads and registers model objects specified in objects.yaml
+        that already exist in the designated directory.
+        - However, the model files corresponding to the label groups expressed in objects.yaml
+        do not necessarily all exist yet.
+        - No new network requests are made during initialization,
+        i.e. missing models are not downloaded during the initialization phase.
 
-        [?]升级的模型不支持热加载，需要重启程序才能读入，但新插入的模型可直接使用。
+        match_net models are passively pulled:
+        ---
+
+        - Missing ONNX models used for handling specific binary classification tasks are
+        passively downloaded during the challenge.
+        - Matching models are automatically downloaded, registered, and returned.
+        - Models not on the objects.yaml list will not be downloaded.
+
+        [!] The newly inserted model can be used directly.
+        :param install_only:
         :param focus_name: model_name with .onnx suffix
         :return:
         """
         net = self._name2net.get(focus_name)
         if not net:
             self.pull_model(focus_name)
-            net = self.active_net(focus_name)
+            if not install_only:
+                net = self.active_net(focus_name)
         return net
 
     def unplug(self):
@@ -379,6 +446,11 @@ class ModelHub:
                 continue
             del self._name2net[ash]
             gc.collect()
+
+        for m in [self.DEFAULT_CLIP_TEXTUAL_MODEL, self.DEFAULT_CLIP_VISUAL_MODEL]:
+            if m in self._name2net:
+                del self._name2net[m]
+                gc.collect()
 
     def apply_ash_of_war(self, ash: str) -> Tuple[str, List[str]]:
         # Prelude - pending DensePose
@@ -435,3 +507,61 @@ class ModelHub:
                 for class_name in covered_class:
                     if class_name in ash:
                         yield model_name, covered_class
+
+
+@dataclass
+class DataLake:
+    positive_labels: List[str] = field(default_factory=list)
+    """
+    Indicate the label with the meaning "True", 
+    preferably an independent noun or clause
+    """
+
+    negative_labels: List[str] = field(default_factory=list)
+    """
+    Indicate the label with the meaning "False", 
+    preferably an independent noun or clause
+    """
+
+    joined_dirs: List[str] | Path | None = None
+    """
+    Attributes reserved for AutoLabeling
+    Used to indicate the directory where the dataset is located
+
+    input_dir = db_dir.joinpath(*joined_dirs).absolute()
+    """
+
+    raw_prompt: str = ""
+    """
+    Challenge prompt or keywords after being divided
+    
+    !! IMPORT !!
+    Only for unsupervised challenges.
+    Please do not read in during the initialization phase.
+    """
+
+    PREMISED_YES: str = "This is a picture that looks like {}."
+    PREMISED_BAD: str = "This is a picture that don't look like {}."
+    """
+    Insert self-supervised prompt
+    """
+
+    @classmethod
+    def from_challenge_prompt(cls, raw_prompt: str):
+        return cls(raw_prompt=raw_prompt)
+
+    @classmethod
+    def from_serialized(cls, fields: Dict[str, List[str]]):
+        positive_labels = []
+        negative_labels = []
+        for kb, labels in fields.items():
+            kb = kb.lower()
+            if "pos" in kb or kb.startswith("t"):
+                positive_labels = labels
+            elif "neg" in kb or kb.startswith("f"):
+                negative_labels = labels
+        return cls(positive_labels=positive_labels, negative_labels=negative_labels)
+
+    @classmethod
+    def from_binary_labels(cls, positive_labels: List[str], negative_labels: List[str]):
+        return cls(positive_labels=positive_labels, negative_labels=negative_labels)
