@@ -145,3 +145,4 @@ docs/*.xmind
 tests_private/
 .run/
 infrastructure/integrations/receita/user_data_dir/**
+poetry-env

@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from typing import Dict, Any, Callable, Awaitable, List
+from typing import Any, Awaitable, Callable, Dict, List
 
 from loguru import logger
-from playwright.async_api import BrowserContext as ASyncContext, async_playwright
-from playwright.sync_api import BrowserContext as SyncContext, sync_playwright
+from playwright.async_api import BrowserContext as ASyncContext
+from playwright.async_api import async_playwright
+from playwright.sync_api import BrowserContext as SyncContext
+from playwright.sync_api import sync_playwright
 
 enabled_evasions = [
     "chrome.app",
@@ -154,6 +156,7 @@ class Malenia:
 
             if not isinstance(sequence, list):
                 sequence = [sequence]
+            responses=[]
             for container in sequence:
                 logger.info("Execute task", name=container.__name__)
                 kws = {}
@@ -165,5 +168,9 @@ class Malenia:
                 if not kws:
                     await container(context)
                 else:
-                    await container(context, **kws)
+                    try:
+                        responses.append( await container(context, **kws))
+                    except Exception as e:
+                        responses.append(e)
             await context.close()
+            return responses
