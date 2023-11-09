@@ -3,6 +3,8 @@
 # Author     : QIN2DIM
 # GitHub     : https://github.com/QIN2DIM
 # Description:
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import os
@@ -190,8 +192,10 @@ def load_gravitas_from_issues() -> List[Gravitas]:
     for issue in issue_repo.get_issues(
         labels=issue_labels,
         state="all",  # fixme `open`
-        since=datetime.now() - timedelta(days=9),  # fixme `24hours`
+        since=datetime.now() - timedelta(days=90),  # fixme `24hours`
     ):
+        if not isinstance(issue.body, str):
+            continue
         if "Automated deployment @" not in issue.body:
             continue
         tasks.append(Gravitas.from_issue(issue))
@@ -202,9 +206,7 @@ def load_gravitas_from_issues() -> List[Gravitas]:
 def get_archive_release() -> GitRelease:
     auth = Auth.Token(os.getenv("GITHUB_TOKEN"))
     archive_release = (
-        Github(auth=auth)
-        .get_repo("captcha-challenger/hcaptcha-whistleblower")
-        .get_release(120534711)
+        Github(auth=auth).get_repo("CaptchaAgent/hcaptcha-whistleblower").get_release(120534711)
     )
     return archive_release
 

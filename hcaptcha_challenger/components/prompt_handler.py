@@ -20,6 +20,18 @@ BAD_CODE = {
     "р": "p",
     "ϳ": "j",
     "х": "x",
+    "\u0405": "S",
+    "\u0042": "B",
+    "\u0052": "R",
+    "\u0049": "I",
+    "\u0043": "C",
+    "\u004b": "K",
+    "\u039a": "K",
+    "\u0053": "S",
+    "\u0421": "C",
+    "\u006c": "l",
+    "\u0399": "I",
+    "\u0392": "B",
     "ー": "一",
     "土": "士",
 }
@@ -39,6 +51,8 @@ def split_prompt_message(prompt_message: str, lang: str) -> str:
         if "containing" in prompt_message:
             th = re.split(r"containing", prompt_message)[-1][1:].strip()
             return th[2:].strip() if th.startswith("a") else th
+        if prompt_message.startswith("select all") and "images" not in prompt_message:
+            return prompt_message.split("select all")[-1].strip()
         if "select all" in prompt_message:
             return re.split(r"all (.*) images", prompt_message)[1].strip()
     return prompt_message
@@ -80,3 +94,7 @@ def prompt2task(prompt: str, lang: str = "en") -> str:
     prompt = label_cleaning(prompt)
     prompt = diagnose_task(prompt)
     return prompt
+
+
+def handle(x):
+    return split_prompt_message(label_cleaning(x), "en")

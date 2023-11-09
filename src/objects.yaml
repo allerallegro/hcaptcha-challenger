@@ -2,11 +2,66 @@ branches:
   qin2dim:
     release_url: https://api.github.com/repos/QIN2DIM/hcaptcha-challenger/releases
     objects_url: https://raw.githubusercontent.com/QDIN2DIM/hcaptcha-challenger/main/src/objects.yaml
+circle_seg: appears_only_once_2309_yolov8s-seg.onnx
+nested_categories:
+  plant:
+  - nested_plant2311.onnx
+  - plant2319.onnx
+  please click on the largest animal:
+  - nested_largest_horse2309.onnx
+  - nested_largest_rabbit2310.onnx
+  - nested_largest_hedgehog2309.onnx
+  - nested_largest_raccoon2309.onnx
+  - nested_largest_elephant2309.onnx
+  - nested_largest_turtle2309.onnx
+  - nested_largest_dog2309.onnx
+  - nested_largest_tiger2309.onnx
+  - nested_largest_squirrel2309.onnx
+  the largest animal:
+  - nested_largest_dog2310.onnx
+  - nested_largest_fox2310.onnx
+  - nested_largest_panda2310.onnx
+  - nested_largest_bird2310.onnx
+  - nested_largest_penguin2309.onnx
+  - nested_largest_capybara2309.onnx
+  please click on the turtle's head:
+  - head_of_the_animal_turtle_2309_yolov8s.onnx
+  please click on the meerkat's head:
+  - head_of_the_meerkat_2311_yolov8n.onnx
+  please click on the jaguar's head:
+  - head_of_the_jaguar_mask_2309_yolov8n.onnx
+  please click on the smallest animal:
+  - nested_smallest_turtle2309.onnx
+  the smallest animal:
+  - nested_smallest_starfish2309.onnx
+  - nested_smallest_horse2311.onnx
+  - nested_smallest_zebra2309.onnx
+  - nested_smallest_turtle2310.onnx
+  - nested_smallest_bird2312.onnx
+  please click in the center of a spiral pattern:
+  - spiral_pattern_2309_yolov8n.onnx
+  images that appear warmer in comparison to other:
+  - nested_warmer_cactus2309.onnx
+  - nested_warmer_conference_room2309.onnx
 ashes_of_war:
-  head_of_the_animal_bear_2309_yolov8n.onnx:
-  - bear-head
   head_of_the_animal_2310_yolov8s.onnx:
   - animal-head
+  head_of_the_animal_bear_2309_yolov8n.onnx:
+  - bear-head
+  head_of_the_jaguar_mask_2309_yolov8n.onnx:
+  - animal-head
+  spiral_pattern_2309_yolov8n.onnx:
+  - spiral-center
+  star_with_a_texture_of_bricks_2309_yolov8s-seg.onnx:
+  - star-bricks
+  head_of_the_meerkat_2311_yolov8n.onnx:
+  - animal-head
+  head_of_the_animal_turtle_2309_yolov8s.onnx:
+  - animal-head
+  can_run_2309_yolov8s.onnx:
+  - can-run
+  appears_only_once_2309_yolov8s-seg.onnx:
+  - the-one-piece
   can_be_eaten_2312_yolov8s.onnx:
   - x-eaten
   notanimal2310_yolov8s.onnx:
@@ -276,11 +331,6 @@ label_alias:
     - 狐狸
     en:
     - fox
-  furniture2309:
-    zh:
-    - 家具
-    en:
-    - furniture
   helicopter2310:
     zh:
     - 直升机
@@ -331,11 +381,6 @@ label_alias:
     - 梯子
     en:
     - ladder
-  boat2309:
-    zh:
-    - 船
-    en:
-    - boat
   cup_of_orange_juice2309:
     zh:
     - 一杯橙汁
@@ -431,27 +476,14 @@ label_alias:
   snowman2311:
     en:
     - snowman
-  natural_landscape2313:
-    zh:
-    - 自然景观
-    en:
-    - natural landscape
   entertainment_venue2315:
     zh:
     - 娱乐场所
     en:
     - entertainment venue
-  electronic_device2315:
-    zh:
-    - 电子设备
-    en:
-    - electronic device
   pizza2300:
     en:
     - pizza
-  main_course2309:
-    en:
-    - main course
   something_you_can_eat2314:
     zh:
     - 你可以吃的东西
@@ -482,17 +514,175 @@ label_alias:
   gnome2310:
     en:
     - gnome
-  food_or_beverage_item2310:
-    zh:
-    - 食品或饮料项目
-    en:
-    - food or beverage item
   fresh_fruit2311:
     en:
     - fresh fruit
   owl2309:
     en:
     - owl
-  beverage2309:
+  food_or_beverage_item2312:
+    zh:
+    - 食品或饮料项目
+    en:
+    - food or beverage item
+  main_course2311:
+    en:
+    - main course
+  boat2310:
+    zh:
+    - 船
+    en:
+    - boat
+  beverage2311:
     en:
     - beverage
+  bird2309:
+    en:
+    - bird
+  drone2309:
+    en:
+    - drone
+  meerkat2309:
+    en:
+    - meerkat
+  indoor_vertical_farm2309:
+    en:
+    - indoor vertical farm
+  smartwatch2309:
+    en:
+    - smartwatch
+  vineyard2309:
+    en:
+    - vineyard
+  hat2310:
+    en:
+    - hat
+  3d_printer2309:
+    en:
+    - 3d printer
+  vr_headset2310:
+    en:
+    - vr headset
+  pair_of_roller_skates2310:
+    en:
+    - pair of roller skates
+  electronic_device2316:
+    zh:
+    - 电子设备
+    en:
+    - electronic device
+  pair_of_headphones2309:
+    en:
+    - pair of headphones
+  furniture2310:
+    en:
+    - furniture
+  off_road_vehicle2310:
+    en:
+    - off-road vehicle
+  sedan_car2309:
+    en:
+    - sedan car
+  bicycle2309:
+    en:
+    - bicycle
+  natural_landscape2315:
+    zh:
+    - 自然景观
+    en:
+    - natural landscape
+  red_panda2310:
+    en:
+    - red panda
+  keyboard2310:
+    en:
+    - keyboard
+  microwave2309:
+    en:
+    - microwave
+  industrial_machinery2309:
+    en:
+    - industrial machinery
+  land_animal2309:
+    en:
+    - land animal
+  water_animal2309:
+    en:
+    - water animal
+  clock2309:
+    en:
+    - clock
+  motorized_machine2312:
+    en:
+    - motorized machine
+  electric_components2309:
+    en:
+    - electric components
+  flying_animal2310:
+    en:
+    - flying animal
+  animal2310:
+    en:
+    - animal
+  electric_cables2309:
+    en:
+    - electric cables
+  land_vehicle2309:
+    en:
+    - land vehicle
+  volcano2311:
+    en:
+    - volcano
+datalake:
+  furniture:
+    positive_labels:
+    - furniture
+    - chair
+    negative_labels:
+    - headphones
+    - guitar
+    - game tool
+    - keyboard
+  football stadium:
+    positive_labels:
+    - football stadium
+    negative_labels:
+    - mouse
+    - natural landscape
+    - river
+  basketball:
+    positive_labels:
+    - basketball
+    negative_labels:
+    - football stadium
+    - mouse
+    - golf
+  golf:
+    positive_labels:
+    - golf
+    negative_labels:
+    - mouse
+    - football stadium
+    - basketball
+  land vehicle:
+    positive_labels:
+    - land vehicle
+    negative_labels:
+    - water vehicle
+    - flying vehicle
+  water vehicle:
+    positive_labels:
+    - water vehicle
+    negative_labels:
+    - flying vehicle
+    - land vehicle
+  machine that flies:
+    positive_labels:
+    - flying vehicle
+    - airplane
+    - propeller
+    negative_labels:
+    - truck
+    - boat
+    - water vehicle
+    - land vehicle
