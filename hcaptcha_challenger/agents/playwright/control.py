@@ -15,12 +15,17 @@ import uuid
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal
+from typing import List, Dict, Any, Literal, Iterable
+
+from PIL import Image
+from loguru import logger
+from playwright.async_api import Page, FrameLocator, Response, Position, Locator
+from playwright.async_api import TimeoutError
 
 from hcaptcha_challenger.components.cv_toolkit import (
+    find_unique_object,
     annotate_objects,
     find_unique_color,
-    find_unique_object,
 )
 from hcaptcha_challenger.components.image_classifier import rank_models
 from hcaptcha_challenger.components.image_downloader import Cirilla
@@ -29,19 +34,15 @@ from hcaptcha_challenger.components.zero_shot_image_classifier import (
     ZeroShotImageClassifier,
     register_pipline,
 )
-from hcaptcha_challenger.onnx.modelhub import DataLake, ModelHub
+from hcaptcha_challenger.onnx.modelhub import ModelHub, DataLake
 from hcaptcha_challenger.onnx.resnet import ResNetControl
 from hcaptcha_challenger.onnx.yolo import (
     YOLOv8,
     YOLOv8Seg,
-    finetune_keypoint,
     is_matched_ash_of_war,
+    finetune_keypoint,
 )
 from hcaptcha_challenger.utils import from_dict_to_model
-from loguru import logger
-from PIL import Image
-
-from playwright.async_api import FrameLocator, Page, Position, Response, TimeoutError
 
 
 @dataclass
@@ -121,6 +122,8 @@ class QuestionResp:
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]):
+        if isinstance(data.get("requester_question_example"), str):
+            data["requester_question_example"] = [data["requester_question_example"]]
         return from_dict_to_model(cls, data)
 
     def save_example(self, tmp_dir: Path = None):
@@ -130,6 +133,11 @@ class QuestionResp:
         answer_keys = list(self.requester_restricted_answer_set.keys())
         ak = f".{answer_keys[0]}" if len(answer_keys) > 0 else ""
         fn = f"{self.request_type}.{shape_type}.{requester_question}{ak}.json"
+
+        inv = {"\\", "/", ":", "*", "?", "<", ">", "|"}
+        for c in inv:
+            fn.replace(c, "")
+
         if tmp_dir and tmp_dir.exists():
             fn = tmp_dir.joinpath(fn)
 
@@ -239,7 +247,9 @@ class Radagon:
 
     HOOK_PURCHASE = "//div[@id='webPurchaseContainer']//iframe"
     HOOK_CHECKBOX = "//iframe[contains(@title, 'checkbox for hCaptcha')]"
-    HOOK_CHALLENGE = "//iframe[contains(@title, 'Conteúdo principal do desafio hCaptcha')]"
+    HOOK_CHALLENGE = "//iframe[contains(@title, 'hCaptcha challenge')]"
+
+    self_supervised: bool = False
 
     def __post_init__(self):
         self.challenge_dir = self.tmp_dir.joinpath("_challenge")
@@ -255,8 +265,8 @@ class Radagon:
         self.handle_question_resp(self.page)
 
     async def handler(self, response: Response):
-        if response.url.startswith("https://hcaptcha.com/getcaptcha/"):
-            with suppress(Exception):
+        if response.url.startswith("https://api.hcaptcha.com/getcaptcha/"):
+            try:
                 data = await response.json()
                 qr = QuestionResp.from_json(data)
                 qr.save_example(tmp_dir=self.record_json_dir)
@@ -264,11 +274,15 @@ class Radagon:
                 if data.get("pass"):
                     cr = ChallengeResp.from_json(data)
                     self.cr_queue.put_nowait(cr)
-        if response.url.startswith("https://hcaptcha.com/checkcaptcha/"):
-            with suppress(Exception):
+            except Exception as err:
+                logger.exception(err)
+        if response.url.startswith("https://api.hcaptcha.com/checkcaptcha/"):
+            try:
                 metadata = await response.json()
                 cr = ChallengeResp.from_json(metadata)
                 self.cr_queue.put_nowait(cr)
+            except Exception as err:
+                logger.exception(err)
 
     def handle_question_resp(self, page: Page):
         page.on("response", self.handler)
@@ -580,8 +594,6 @@ class Radagon:
             # Drop element location
             samples = frame_challenge.locator("//div[@class='task-image']")
             count = await samples.count()
-            # Remember you are human not a robot
-            await self.page.wait_for_timeout(600)
             # Classify and Click on the right image
             positive_cases = 0
             for i in range(count):
@@ -596,6 +608,8 @@ class Radagon:
                 elif positive_cases == 0 and pth == times - 1 and i == count - 1:
                     await sample.click(delay=200)
 
+            # Remember you are human not a robot
+            await self.page.wait_for_timeout(1500)
             # {{< Verify >}}
             with suppress(TimeoutError):
                 fl = frame_challenge.locator("//div[@class='button-submit button']")
@@ -636,6 +650,50 @@ class Radagon:
                         await sample.click(delay=200)
                 elif positive_cases == 0 and pth == times - 1 and i == count - 1:
                     await sample.click(delay=200)
+
+            # {{< Verify >}}
+            with suppress(TimeoutError):
+                fl = frame_challenge.locator("//div[@class='button-submit button']")
+                await fl.click()
+
+    async def _multiple_choice_challenge(self, frame_challenge: FrameLocator):
+        def inject_datalake(img_path: Path) -> Locator | None:
+            candidates = [lb["text"] for lb in label_btn]
+            dl = DataLake.from_binary_labels(
+                positive_labels=candidates[:1], negative_labels=candidates[1:]
+            )
+            tool = ZeroShotImageClassifier.from_datalake(dl)
+            results = tool(model, image=Image.open(img_path))
+            sample_label = results[0]["label"]
+            logger.debug(
+                "unsupervised",
+                type="multiple choice",
+                results=sample_label,
+                candidate_labels=candidates,
+                prompt=self._prompt,
+            )
+            for lb in label_btn:
+                if DataLake.PREMISED_YES.format(lb["text"]) == sample_label:
+                    return lb["btn"]
+
+        model = register_pipline(self.modelhub)
+
+        times = int(len(self.qr.tasklist))
+        for pth in range(times):
+            await self.page.wait_for_timeout(300)
+            label_btn: List[Dict[str, str | Locator]] = []
+            samples = frame_challenge.locator("//div[@class='challenge-answer']")
+            count = await samples.count()
+            for i in range(count):
+                sample = samples.nth(i)
+                await sample.wait_for()
+                text_content = await sample.text_content()
+                label_btn.append({"text": text_content.strip(), "btn": sample})
+
+            if btn := inject_datalake(img_path=self._img_paths[pth]):
+                await btn.click(delay=200)
+            else:
+                await label_btn[-1]["btn"].click(delay=200)
 
             # {{< Verify >}}
             with suppress(TimeoutError):
@@ -694,12 +752,8 @@ class AgentT(Radagon):
 
     async def handle_checkbox(self):
         with suppress(TimeoutError):
-            await self.page.wait_for_selector("div.h-captcha > iframe")
-
-            frame = self.page.frames[-1]
-
-            await frame.wait_for_selector("#checkbox")
-            await frame.click("#checkbox")
+            checkbox = self.page.frame_locator("//iframe[contains(@title,'checkbox')]")
+            await checkbox.locator("#checkbox").click()
 
     async def execute(self, **kwargs) -> str | None:
         window = kwargs.get("window", "login")
@@ -747,6 +801,12 @@ class AgentT(Radagon):
                     await self._keypoint_challenge(frame_challenge)
                 elif shape_type == "bounding_box":
                     await self._bounding_challenge(frame_challenge)
+        # Match: image_label_multiple_choice
+        elif self.qr.request_type == "image_label_multiple_choice":
+            # By default, CLIP is used to process this type of task.
+            if not self.self_supervised:
+                return self.status.CHALLENGE_BACKCALL
+            await self._multiple_choice_challenge(frame_challenge)
 
         self.modelhub.unplug()
 

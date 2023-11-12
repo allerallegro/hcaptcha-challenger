@@ -22,14 +22,33 @@ solver.install(upgrade=True, clip=clip_available)
 # Save dataset to current working directory
 tmp_dir = Path(__file__).parent.joinpath("tmp_dir")
 
+# sitekey = "58366d97-3e8c-4b57-a679-4a41c8423be3"
 sitekey = SiteKey.user_easy
+
+
+def patch_datalake(modelhub: solver.ModelHub):
+    datalake_post = {
+        "animal": {
+            "positive_labels": ["animal", "bird"],
+            "negative_labels": ["cables", "forklift", "boat"],
+        },
+        solver.handle("Select all cats."): {"positive_labels": ["cat"], "negative_labels": ["dog"]},
+    }
+    for prompt_, serialized_binary in datalake_post.items():
+        dl = solver.DataLake.from_serialized(serialized_binary)
+        modelhub.datalake[prompt_] = dl
 
 
 @logger.catch
 async def hit_challenge(context: ASyncContext, times: int = 8):
     page = await context.new_page()
+
     agent = AgentT.from_page(page=page, tmp_dir=tmp_dir, self_supervised=clip_available)
-    await page.goto(SiteKey.as_sitelink(sitekey))
+    patch_datalake(agent.modelhub)
+
+    url = SiteKey.as_sitelink(sitekey)
+    await page.goto(url)
+    logger.info("Startup sitelink", url=url)
 
     await agent.handle_checkbox()
 
@@ -51,7 +70,9 @@ async def bytedance():
     # playwright install chromium --with-deps
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
-        context = await browser.new_context(locale="en-US")
+        context = await browser.new_context(
+            locale="en-US", record_video_dir=Path("user_data_dir/record")
+        )
         await hit_challenge(context)
 
 
