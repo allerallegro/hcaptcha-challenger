@@ -15,17 +15,16 @@ import uuid
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any, Literal, Iterable
+from typing import Any, Dict, Iterable, List, Literal
 
-from PIL import Image
 from loguru import logger
-from playwright.async_api import Page, FrameLocator, Response, Position, Locator
-from playwright.async_api import TimeoutError
+from PIL import Image
+from playwright.async_api import FrameLocator, Locator, Page, Position, Response, TimeoutError
 
 from hcaptcha_challenger.components.cv_toolkit import (
-    find_unique_object,
     annotate_objects,
     find_unique_color,
+    find_unique_object,
 )
 from hcaptcha_challenger.components.image_classifier import rank_models
 from hcaptcha_challenger.components.image_downloader import Cirilla
@@ -34,13 +33,13 @@ from hcaptcha_challenger.components.zero_shot_image_classifier import (
     ZeroShotImageClassifier,
     register_pipline,
 )
-from hcaptcha_challenger.onnx.modelhub import ModelHub, DataLake
+from hcaptcha_challenger.onnx.modelhub import DataLake, ModelHub
 from hcaptcha_challenger.onnx.resnet import ResNetControl
 from hcaptcha_challenger.onnx.yolo import (
     YOLOv8,
     YOLOv8Seg,
-    is_matched_ash_of_war,
     finetune_keypoint,
+    is_matched_ash_of_war,
 )
 from hcaptcha_challenger.utils import from_dict_to_model
 
@@ -247,7 +246,7 @@ class Radagon:
 
     HOOK_PURCHASE = "//div[@id='webPurchaseContainer']//iframe"
     HOOK_CHECKBOX = "//iframe[contains(@title, 'checkbox for hCaptcha')]"
-    HOOK_CHALLENGE = "//iframe[contains(@title, 'hCaptcha challenge')]"
+    HOOK_CHALLENGE = "//iframe[contains(@title, 'Conteúdo principal do desafio hCaptcha')]"
 
     self_supervised: bool = False
 
@@ -592,7 +591,7 @@ class Radagon:
         times = int(len(self.qr.tasklist) / 9)
         for pth in range(times):
             # Drop element location
-            samples = frame_challenge.locator("//div[@class='task-image']")
+            samples = frame_challenge.locator("//div[@class='task']")
             count = await samples.count()
             # Classify and Click on the right image
             positive_cases = 0
@@ -752,7 +751,9 @@ class AgentT(Radagon):
 
     async def handle_checkbox(self):
         with suppress(TimeoutError):
-            checkbox = self.page.frame_locator("//iframe[contains(@title,'checkbox')]")
+            checkbox = self.page.frame_locator(
+                "//iframe[contains(@title,'Widget contendo caixa de seleção para desafio de segurança hCaptcha')]"
+            )
             await checkbox.locator("#checkbox").click()
 
     async def execute(self, **kwargs) -> str | None:

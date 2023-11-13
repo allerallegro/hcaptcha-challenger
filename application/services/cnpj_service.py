@@ -1,8 +1,7 @@
 from datetime import date
 from typing import Optional
 
-from exception.data_nascimento_exception import \
-    DataNascimentoDivergenteException
+from exception.data_nascimento_exception import DataNascimentoDivergenteException
 from exception.nao_encontrado_exception import NaoEncontradoException
 from infrastructure.database.db import Database
 from infrastructure.integrations.receita.cnpj_client import CNPJClient
@@ -24,8 +23,8 @@ class CNPJService:
     ) -> (Optional[Cnpj], bool):
         ultima_consulta = self.cnpj_repository.get_ultima_consulta(cnpj)
 
-        if ultima_consulta != None:
-            return (ultima_consulta, True,200)
+        if ultima_consulta != None and ultima_consulta["cnae"] != "":
+            return (ultima_consulta, True, 200)
 
         client = CNPJClient()
 
@@ -42,11 +41,9 @@ class CNPJService:
         except NaoEncontradoException as e:
             r = Cnpj(erro=str(e), cpf=cnpj)
             self.salvar(cpf=cnpj, data=r)
-            return (r,False,404)
+            return (r, False, 404)
 
-
-        return (result, False,200)
-        
+        return (result, False, 200)
 
     def format_date(self, date: date) -> str:
         return date.strftime("%d/%m/%Y")
