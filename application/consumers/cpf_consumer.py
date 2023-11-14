@@ -59,7 +59,7 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
             while attempts <= max_attempts:
                 (response, cache, status) = asyncio.run(
                     service.consultar_cpf(
-                        cpf,nascimento, headless=False
+                        cpf,nascimento, headless=True
                     )
                 )
                 success = True

@@ -18,35 +18,25 @@ from hcaptcha_challenger.components.prompt_handler import (
     diagnose_task,
     split_prompt_message,
     prompt2task,
-    handle,
 )
-from hcaptcha_challenger.components.zero_shot_image_classifier import (
-    ZeroShotImageClassifier,
-    DataLake,
-    register_pipline,
-)
+from hcaptcha_challenger.onnx.modelhub import DEFAULT_KEYPOINT_MODEL
 from hcaptcha_challenger.onnx.modelhub import ModelHub
 from hcaptcha_challenger.onnx.resnet import ResNetControl
 from hcaptcha_challenger.onnx.yolo import YOLOv8
-from hcaptcha_challenger.onnx.yolo import YOLOv8Seg
 from hcaptcha_challenger.utils import init_log
 
 __all__ = [
     "BinaryClassifier",
     "LocalBinaryClassifier",
-    "ZeroShotImageClassifier",
-    "register_pipline",
-    "DataLake",
     "AreaSelector",
     "label_cleaning",
     "diagnose_task",
     "split_prompt_message",
     "prompt2task",
-    "handle",
     "ModelHub",
+    "DEFAULT_KEYPOINT_MODEL",
     "ResNetControl",
     "YOLOv8",
-    "YOLOv8Seg",
     "install",
 ]
 
@@ -71,34 +61,23 @@ def install(
     username: str = "QIN2DIM",
     lang: str = "en",
     flush_yolo: bool | Iterable[str] = False,
-    pypi: bool = False,
-    clip: bool = False,
-    **kwargs,
 ):
-    if pypi is True:
-        from hcaptcha_challenger.utils import PyPI
-
-        PyPI("hcaptcha-challenger").install()
-
     modelhub = ModelHub.from_github_repo(username=username, lang=lang)
     modelhub.pull_objects(upgrade=upgrade)
     modelhub.assets.flush_runtime_assets(upgrade=upgrade)
 
-    if clip is True:
-        from hcaptcha_challenger.components.zero_shot_image_classifier import register_pipline
-
-        register_pipline(modelhub, install_only=True)
-
     if flush_yolo is not None:
+        from hcaptcha_challenger.onnx.modelhub import DEFAULT_KEYPOINT_MODEL
+
         modelhub.parse_objects()
 
         if isinstance(flush_yolo, bool) and flush_yolo:
-            flush_yolo = [modelhub.circle_segment_model]
+            flush_yolo = [DEFAULT_KEYPOINT_MODEL]
         if isinstance(flush_yolo, Iterable):
             pending_models = []
             for model_name in flush_yolo:
                 if model_name in modelhub.ashes_of_war:
-                    modelhub.match_net(model_name, install_only=True)
+                    modelhub.pull_model(model_name)
                     pending_models.append(model_name)
             return pending_models
 
