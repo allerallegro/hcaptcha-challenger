@@ -53,7 +53,7 @@ class CNPJClient:
             user_data_dir=context_dir, record_dir=record_dir, record_har_path=record_har_path
         )
         result = await malenia.execute(
-            sequence=[self.hit_challenge], parameters={"cnpj": cnpj}, headless=False
+            sequence=[self.hit_challenge], parameters={"cnpj": cnpj}, headless=headless
         )
         if isinstance(result[0], Exception):
             raise result[0]

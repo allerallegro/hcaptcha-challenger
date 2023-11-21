@@ -2,6 +2,7 @@ import asyncio
 import json
 import random
 import time
+from datetime import datetime, timedelta
 
 import pika
 import psycopg2
@@ -18,12 +19,22 @@ user = "admin"
 password = "123123"
 exchange_name = "receita-result"
 
+last_update_v = datetime.now()
+
+
+def set_datetime(dt):
+    global last_update_v
+    last_update_v = dt
+
+
+def get_datetime() -> datetime:
+    global last_update_v
+    return last_update_v
+
 
 def publish(channel: Channel, data):
     mensagem = {
-        "messageType": [
-            "urn:message:Alice.Lote.Sodexo.Domain.Bus:ReceitaProcessResult"
-        ],
+        "messageType": ["urn:message:Alice.Lote.Sodexo.Domain.Bus:ReceitaProcessResult"],
         "message": {
             "batchItem": {
                 "document": data[0],
@@ -41,13 +52,12 @@ def publish(channel: Channel, data):
     }
 
     # Publica a mensagem na exchange
-    channel.basic_publish(
-        exchange=exchange_name, routing_key="", body=json.dumps(mensagem)
-    )
+    channel.basic_publish(exchange=exchange_name, routing_key="", body=json.dumps(mensagem))
 
 
 def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body):
     try:
+        set_datetime(datetime.now())
         obj = json.loads(body.decode("utf-8"))
         cpf = obj["message"]["batchItem"]["document"]
         print(cpf)
@@ -56,11 +66,7 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
             max_attempts = 10
             attempts = 0
             while attempts <= max_attempts:
-                (response, cache, status) = asyncio.run(
-                    service.consultar_cnpj(
-                        cpf, headless=False
-                    )
-                )
+                (response, cache, status) = asyncio.run(service.consultar_cnpj(cpf, headless=False))
                 success = True
                 break
 
@@ -70,7 +76,7 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
                     [
                         cpf,
                         obj["message"]["batchItem"]["batchId"],
-                        obj["message"]["batchItem"]["batchItemId"]
+                        obj["message"]["batchItem"]["batchItemId"],
                     ],
                 )
             if status == 409 or status == 404:
@@ -79,7 +85,7 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
                     [
                         cpf,
                         obj["message"]["batchItem"]["batchId"],
-                        obj["message"]["batchItem"]["batchItemId"]
+                        obj["message"]["batchItem"]["batchItemId"],
                     ],
                 )
 
@@ -92,22 +98,15 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
             # Publica a mensagem na exchange
             properties.headers.update({"error": str(error)})
             ch.basic_publish(
-                exchange="receitapj_error",
-                routing_key="",
-                properties=properties,
-                body=body,
+                exchange="receitapj_error", routing_key="", properties=properties, body=body
             )
             ch.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as e:
         properties.headers.update({"error": str(e)})
         ch.basic_publish(
-                exchange="receitapj_error",
-                routing_key="",
-                properties=properties,
-                body=body,
-            )
+            exchange="receitapj_error", routing_key="", properties=properties, body=body
+        )
         ch.basic_ack(delivery_tag=method.delivery_tag)
-
 
 
 def run():
@@ -155,11 +154,7 @@ def connect_to_rabbitmq():
 
     print(f" [*] Waiting for messages in {queue}. To exit press CTRL+C")
 
-    channel.basic_consume(
-        queue=queue,
-        on_message_callback=consume_callback,
-        auto_ack=False,
-    )
+    channel.basic_consume(queue=queue, on_message_callback=consume_callback, auto_ack=False)
     try:
         channel.start_consuming()
     except KeyboardInterrupt:
