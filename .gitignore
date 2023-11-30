@@ -134,7 +134,7 @@ database/
 
 compile.py
 hcaptcha_challenger/logs
-**/models/
+hcaptcha_challenger/**/models/
 examples/tmp_dir
 examples/user_data_dir
 examples/figs-detect-out/
