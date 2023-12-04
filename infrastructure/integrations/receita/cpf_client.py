@@ -15,8 +15,7 @@ from loguru import logger
 from playwright.async_api import BrowserContext as ASyncContext
 
 import hcaptcha_challenger as solver
-from exception.data_nascimento_exception import \
-    DataNascimentoDivergenteException
+from exception.data_nascimento_exception import DataNascimentoDivergenteException
 from exception.nao_encontrado_exception import NaoEncontradoException
 from hcaptcha_challenger.agents import AgentT, Malenia
 from hcaptcha_challenger.utils import SiteKey
@@ -38,9 +37,6 @@ sitekey = SiteKey.user_easy
 CNPJ_NAO_ENCONTRADO = "Não existe no Cadastro de Pessoas Jurdicas o número de CNPJ informado. Verifique se o mesmo foi digitado corretamente."
 
 
-
-
-
 class CPFClient:
     def __init__(self):
         pass
@@ -54,22 +50,27 @@ class CPFClient:
         proxy_password: Optional[str] = None,
         headless: bool = True,
     ) -> Optional[ConsultaCpfModel]:
-            malenia = Malenia(
-                user_data_dir=context_dir, record_dir=record_dir, record_har_path=record_har_path
-            )
-            result = await malenia.execute(sequence=[self.hit_challenge],parameters={
-            "cpf": cpf, "nascimento": data_nascimento
-            }, headless=headless)
-            if isinstance(result[0], Exception):
-                raise result[0]
-            return result[0]
-    
+        malenia = Malenia(
+            user_data_dir=context_dir, record_dir=record_dir, record_har_path=record_har_path
+        )
+        result = await malenia.execute(
+            sequence=[self.hit_challenge],
+            parameters={"cpf": cpf, "nascimento": data_nascimento},
+            headless=headless,
+        )
+        if isinstance(result[0], Exception):
+            raise result[0]
+        return result[0]
+
     @logger.catch
-    async def hit_challenge(self,context: ASyncContext, times: int = 8, cpf='', nascimento=''):
+    async def hit_challenge(self, context: ASyncContext, times: int = 8, cpf="", nascimento=""):
         page = context.pages[0]
         agent = AgentT.from_page(page=page, tmp_dir=tmp_dir)
         data_nascimento_encoded = urllib.parse.quote(nascimento)
-        await page.goto(f'https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp?cpf={cpf}&nascimento={data_nascimento_encoded}',timeout=60000)
+        await page.goto(
+            f"https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp?cpf={cpf}&nascimento={data_nascimento_encoded}",
+            timeout=60000,
+        )
 
         await agent.handle_checkbox()
 
@@ -85,15 +86,15 @@ class CPFClient:
                     rqdata_path = agent.export_rq()
                     print(f"View RQdata path={rqdata_path}")
                     break
-        
+
         await page.bring_to_front()
 
-        await page.wait_for_selector('#id_submit')
+        await page.wait_for_selector("#id_submit")
 
         # Aguarda 5 segundos
         await asyncio.sleep(2)
 
-        await page.click('#id_submit',timeout=60000)
+        await page.click("#id_submit", timeout=60000)
 
         await page.wait_for_function(
             """() => {
@@ -103,19 +104,18 @@ class CPFClient:
                 bElements.some(b => b.textContent.includes("divergente da constante na base de dados") || 
                 b.textContent.includes("encontrado na base de dados da Receita Federal") ||
                 b.textContent.includes("CPF incorreto")) ;
-            }""",
-            
+            }"""
         )
 
         html1 = await page.content()
-        
-        if "divergente" in html1 :
+
+        if "divergente" in html1:
             return DataNascimentoDivergenteException()
         elif "encontrado na base de dados da Receita Federal" in html1 or "CPF incorreto" in html1:
             return NaoEncontradoException()
-        
+
         result = from_html(html1)
-        
+
         return result
 
     def format_date(self, date: date) -> str:
