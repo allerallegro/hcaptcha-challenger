@@ -3,7 +3,7 @@
 
 [tool.poetry]
 name = "hcaptcha-challenger"
-version = "0.9.5"
+version = "0.10.1-post2"
 description = "🥂 Gracefully face hCaptcha challenge with MoE(ONNX) embedded solution."
 license = "GPL-3.0-or-later"
 authors = ["QIN2DIM <yaoqinse@gmail.com>", "Bingjie Yan <bj.yan.pa@qq.com>"]
@@ -46,7 +46,8 @@ scikit-image = "^0.21.0"
 importlib_metadata = "*"
 ftfy = "*"
 regex = "*"
-
+pydantic = "^2.5.1"
+tenacity = "^8.2.3"
 # The following dependencies will not be installed
 # when you just run `poetry install` or `pip install hcaptcha-challenger`
 undetected-chromedriver = { version = "^3.5.3", optional = true }

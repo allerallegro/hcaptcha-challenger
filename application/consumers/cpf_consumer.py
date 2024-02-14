@@ -2,6 +2,7 @@ import asyncio
 import json
 import random
 import time
+from datetime import datetime, timedelta
 
 import pika
 import psycopg2
@@ -18,12 +19,22 @@ user = "admin"
 password = "123123"
 exchange_name = "receita-result"
 
+last_update_v = datetime.now()
+
+
+def set_datetime(dt):
+    global last_update_v
+    last_update_v = dt
+
+
+def get_datetime() -> datetime:
+    global last_update_v
+    return last_update_v
+
 
 def publish(channel: Channel, data):
     mensagem = {
-        "messageType": [
-            "urn:message:Alice.Lote.Sodexo.Domain.Bus:ReceitaProcessResult"
-        ],
+        "messageType": ["urn:message:Alice.Lote.Sodexo.Domain.Bus:ReceitaProcessResult"],
         "message": {
             "batchItem": {
                 "document": data[0],
@@ -57,6 +68,7 @@ async def consulta_cpf_with_timeout(cpf,nascimento,headless):
 
 def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body):
     try:
+        set_datetime(datetime.now())
         obj = json.loads(body.decode("utf-8"))
         cpf = obj["message"]["batchItem"]["document"]
         nascimento = obj["message"]["batchItem"]["birthDate"]
@@ -81,7 +93,7 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
                         cpf,
                         obj["message"]["batchItem"]["batchId"],
                         obj["message"]["batchItem"]["batchItemId"],
-                        nascimento
+                        nascimento,
                     ],
                 )
             if status == 409 or status == 404:
@@ -91,7 +103,7 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
                         cpf,
                         obj["message"]["batchItem"]["batchId"],
                         obj["message"]["batchItem"]["batchItemId"],
-                        nascimento
+                        nascimento,
                     ],
                 )
 
@@ -104,21 +116,15 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
             # Publica a mensagem na exchange
             properties.headers.update({"error": error.message})
             ch.basic_publish(
-                exchange="receitapf_error",
-                routing_key="",
-                properties=properties,
-                body=body,
+                exchange="receitapf_error", routing_key="", properties=properties, body=body
             )
             ch.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as e:
         print(e)
         properties.headers.update({"error": str(e)})
         ch.basic_publish(
-                exchange="receitapf_error",
-                routing_key="",
-                properties=properties,
-                body=body,
-            )
+            exchange="receitapf_error", routing_key="", properties=properties, body=body
+        )
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
 
@@ -167,11 +173,7 @@ def connect_to_rabbitmq():
 
     print(f" [*] Waiting for messages in {queue}. To exit press CTRL+C")
 
-    channel.basic_consume(
-        queue=queue,
-        on_message_callback=consume_callback,
-        auto_ack=False,
-    )
+    channel.basic_consume(queue=queue, on_message_callback=consume_callback, auto_ack=False)
     try:
         channel.start_consuming()
     except KeyboardInterrupt:
