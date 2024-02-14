@@ -44,7 +44,16 @@ def publish(channel: Channel, data):
     channel.basic_publish(
         exchange=exchange_name, routing_key="", body=json.dumps(mensagem)
     )
+    
+async def consulta_cpf_with_timeout(cpf,nascimento,headless):
+    
+    return await  asyncio.wait_for(
+        service.consultar_cpf(cpf=cpf,nascimento=nascimento,headless=headless),
+        timeout=60
+    )
 
+        
+        
 
 def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body):
     try:
@@ -58,7 +67,7 @@ def consume_callback(ch: Channel, method, properties: pika.BasicProperties, body
             attempts = 0
             while attempts <= max_attempts:
                 (response, cache, status) = asyncio.run(
-                    service.consultar_cpf(
+                    consulta_cpf_with_timeout(
                         cpf,nascimento, headless=True
                     )
                 )
